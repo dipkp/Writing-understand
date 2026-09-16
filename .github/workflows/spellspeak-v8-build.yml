@@ -1,0 +1,200 @@
+name: Build SpellSpeak V8 APK
+
+on:
+  push:
+    branches: [ "spellspeak-v8-build" ]
+    paths:
+      - "spellspeak-v7/**"
+      - "spellspeak-v6/**"
+      - "spellspeak-v5/**"
+      - "spellspeak-v4/**"
+      - ".github/workflows/spellspeak-v8-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct Android base
+        shell: bash
+        run: |
+          cat spellspeak-v4/q01.txt spellspeak-v4/q02.txt spellspeak-v4/q03.txt spellspeak-v4/q04.txt spellspeak-v4/q05.txt spellspeak-v4/q06.txt spellspeak-v4/q07.txt spellspeak-v4/q08.txt spellspeak-v4/q09.txt > /tmp/spellspeak-v4.b64
+          base64 --decode /tmp/spellspeak-v4.b64 > /tmp/spellspeak-v4.zip
+          rm -rf spellspeak-v8/project
+          mkdir -p spellspeak-v8/project
+          set +e
+          unzip -o /tmp/spellspeak-v4.zip -d spellspeak-v8/project
+          UNZIP_CODE=$?
+          set -e
+          echo "legacy unzip exit code: $UNZIP_CODE"
+          test -f spellspeak-v8/project/SpellSpeakV4Android/settings.gradle.kts
+
+      - name: Apply V8 navigation, user logo and forced launcher icon
+        shell: bash
+        run: |
+          ROOT=spellspeak-v8/project/SpellSpeakV4Android
+          ASSETS="$ROOT/app/src/main/assets"
+          JAVA="$ROOT/app/src/main/java/com/spellspeak/app"
+          RES="$ROOT/app/src/main/res"
+
+          # Repaired library + compact system-bar-safe UI.
+          cat spellspeak-v5/data00.txt spellspeak-v5/data01.txt spellspeak-v5/data02.txt spellspeak-v5/data03.txt spellspeak-v5/data04.txt > "$ASSETS/words-data.js"
+          cat spellspeak-v5/topbar-patch.css >> "$ASSETS/styles.css"
+
+          # Native Android inset / TTS / notification layer.
+          cp spellspeak-v6/native/MainActivity.java "$JAVA/MainActivity.java"
+          cp spellspeak-v6/native/BootReceiver.java "$JAVA/BootReceiver.java"
+          cp spellspeak-v6/native/ReminderReceiver.java "$JAVA/ReminderReceiver.java"
+          cp spellspeak-v6/native/ReminderScheduler.java "$JAVA/ReminderScheduler.java"
+          cp spellspeak-v6/native/NotificationUtil.java "$JAVA/NotificationUtil.java"
+
+          # Exact user-provided logo for in-app branding.
+          cp spellspeak-v7/logo192.png "$ASSETS/spell-logo.png"
+          cp spellspeak-v7/logo192.png "$ASSETS/icon.png"
+
+          # IMPORTANT V8 FIX: do NOT reuse ic_launcher. Give Android a completely
+          # new launcher resource name so Samsung/One UI cannot keep resolving the
+          # old template/default Android robot icon. Provide legacy + adaptive + round.
+          rm -rf "$RES/mipmap-anydpi-v26"
+          mkdir -p "$RES/mipmap-anydpi-v26" "$RES/values"
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "$RES/mipmap-$density"
+            cp spellspeak-v7/logo192.png "$RES/mipmap-$density/spellspeak_icon.png"
+            cp spellspeak-v7/logo192.png "$RES/mipmap-$density/spellspeak_icon_round.png"
+          done
+          cat > "$RES/values/icon_colors.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="spellspeak_icon_background">#000000</color>
+          </resources>
+          XML
+          cat > "$RES/mipmap-anydpi-v26/spellspeak_icon.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/spellspeak_icon_background" />
+              <foreground android:drawable="@mipmap/spellspeak_icon_legacy" />
+          </adaptive-icon>
+          XML
+          cat > "$RES/mipmap-anydpi-v26/spellspeak_icon_round.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/spellspeak_icon_background" />
+              <foreground android:drawable="@mipmap/spellspeak_icon_legacy" />
+          </adaptive-icon>
+          XML
+          # A separate legacy alias avoids recursive reference from adaptive icon.
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            cp spellspeak-v7/logo192.png "$RES/mipmap-$density/spellspeak_icon_legacy.png"
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('spellspeak-v8/project/SpellSpeakV4Android')
+          assets=root/'app/src/main/assets'
+
+          # Android system Back/gesture navigates inside SpellSpeak first.
+          app=assets/'app.js'
+          s=app.read_text()
+          back_line="function back(){if(navStack.length>1)navStack.pop();go(navStack[navStack.length-1]||'homePage',false)}"
+          native_back="window.ssNativeBack=()=>{const drawer=document.getElementById('drawerShade');if(drawer&&drawer.classList.contains('show')){menuClose();return true}const active=document.querySelector('.page.active')?.id||'homePage';if(navStack.length>1){back();return true}if(active!=='homePage'){navStack=['homePage'];go('homePage',false);return true}return false}"
+          if 'window.ssNativeBack=' not in s:
+              if back_line not in s: raise SystemExit('back navigation marker missing')
+              s=s.replace(back_line, back_line+'\n'+native_back, 1)
+          else:
+              s=re.sub(r"window\.ssNativeBack=\(\)=>\{.*?return false\}", native_back, s, count=1)
+          old="function updateHeader(page){const [t,s]=pageInfo[page]||pageInfo.homePage;$('pageTitle').textContent=t;$('pageSub').textContent=s;const home=page==='homePage';$('navBtn').classList.toggle('hidden',!home);$('backBtn').classList.toggle('hidden',home)}"
+          new="function updateHeader(page){const [t,s]=pageInfo[page]||pageInfo.homePage;$('pageTitle').textContent=t;$('pageSub').textContent=s;const home=page==='homePage';document.querySelector('.appbar').classList.toggle('inner-page',!home);$('navBtn').classList.toggle('hidden',!home);$('backBtn').classList.toggle('hidden',home)}"
+          if old in s: s=s.replace(old,new,1)
+          app.write_text(s)
+
+          # Exact logo in home header.
+          html=assets/'index.html'
+          s=html.read_text()
+          s=re.sub(r'<div class="brand-mark" aria-hidden="true">\s*<svg.*?</svg>\s*</div>', '<div class="brand-mark logo-brand" aria-hidden="true"><img src="spell-logo.png" alt=""></div>', s, count=1, flags=re.S)
+          html.write_text(s)
+          css=assets/'styles.css'
+          s=css.read_text()+'''\n/* V8 user logo */\n.brand-mark.logo-brand{background:#000;overflow:hidden;padding:0;border:1px solid rgba(255,255,255,.08);box-shadow:none}\n.brand-mark.logo-brand img{width:100%;height:100%;object-fit:contain;display:block}\n.appbar.inner-page .brand-mark.logo-brand{display:none}\n'''
+          css.write_text(s)
+
+          # Force manifest to NEW launcher resources.
+          manifest=root/'app/src/main/AndroidManifest.xml'
+          s=manifest.read_text()
+          if 'android:icon=' in s:
+              s=re.sub(r'android:icon="[^"]+"', 'android:icon="@mipmap/spellspeak_icon"', s)
+          else:
+              s=s.replace('android:label="SpellSpeak"', 'android:label="SpellSpeak"\n        android:icon="@mipmap/spellspeak_icon"')
+          if 'android:roundIcon=' in s:
+              s=re.sub(r'android:roundIcon="[^"]+"', 'android:roundIcon="@mipmap/spellspeak_icon_round"', s)
+          else:
+              s=s.replace('android:icon="@mipmap/spellspeak_icon"', 'android:icon="@mipmap/spellspeak_icon"\n        android:roundIcon="@mipmap/spellspeak_icon_round"')
+          if 'android:windowSoftInputMode=' not in s:
+              s=s.replace('android:name=".MainActivity"\n            android:exported="true"', 'android:name=".MainActivity"\n            android:exported="true"\n            android:windowSoftInputMode="adjustResize"')
+          if 'android.permission.POST_NOTIFICATIONS' not in s:
+              s=s.replace('<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />', '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
+          manifest.write_text(s)
+
+          styles=root/'app/src/main/res/values/styles.xml'
+          st=styles.read_text()
+          if 'android:windowDrawsSystemBarBackgrounds' not in st:
+              st=st.replace('</style>', '    <item name="android:windowDrawsSystemBarBackgrounds">true</item>\n</style>', 1)
+          styles.write_text(st)
+
+          build=root/'app/build.gradle.kts'
+          b=build.read_text()
+          b=re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 8', b)
+          b=re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "8.0"', b)
+          build.write_text(b)
+          PY
+
+          node --check "$ASSETS/app.js"
+          node --check "$ASSETS/words-data.js"
+          grep -n 'spellspeak_icon' "$ROOT/app/src/main/AndroidManifest.xml"
+          test -s "$RES/mipmap-xxxhdpi/spellspeak_icon.png"
+          test -s "$RES/mipmap-anydpi-v26/spellspeak_icon.xml"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android 35 using runner SDK
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(find "$ANDROID_HOME" -type f -name sdkmanager | head -n 1)"; fi
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build V8 APK
+        working-directory: spellspeak-v8/project/SpellSpeakV4Android
+        run: gradle assembleDebug --stacktrace --no-daemon
+
+      - name: Verify launcher icon and APK
+        shell: bash
+        run: |
+          APK=spellspeak-v8/project/SpellSpeakV4Android/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          "$AAPT" dump badging "$APK" | grep -E "application:|application-icon" | head -20
+          "$AAPT" dump badging "$APK" | grep -q "application-icon-.*:'res/mipmap-.*spellspeak_icon"
+          cp "$APK" spellspeak-v8/SpellSpeak-V8.apk
+          unzip -t spellspeak-v8/SpellSpeak-V8.apk >/dev/null
+          ls -lh spellspeak-v8/SpellSpeak-V8.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpellSpeak-V8-APK
+          path: spellspeak-v8/SpellSpeak-V8.apk
+          if-no-files-found: error
+          retention-days: 7
