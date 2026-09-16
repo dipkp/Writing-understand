@@ -29,14 +29,14 @@ jobs:
           echo "legacy unzip exit code: $UNZIP_CODE"
           test -f spellspeak-v6/project/SpellSpeakV4Android/settings.gradle.kts
 
-      - name: Apply repaired library and native safe-inset fix
+      - name: Apply repaired library and clean native system-bar fix
         shell: bash
         run: |
           ROOT=spellspeak-v6/project/SpellSpeakV4Android
           ASSETS="$ROOT/app/src/main/assets"
-          MAIN="$ROOT/app/src/main/java/com/spellspeak/app/MainActivity.java"
+          JAVA="$ROOT/app/src/main/java/com/spellspeak/app"
 
-          # Keep the V5 repaired library and compact UI.
+          # V5 repaired word library + compact header UI.
           cat spellspeak-v5/data00.txt spellspeak-v5/data01.txt spellspeak-v5/data02.txt spellspeak-v5/data03.txt spellspeak-v5/data04.txt > "$ASSETS/words-data.js"
           cat spellspeak-v5/topbar-patch.css >> "$ASSETS/styles.css"
           node --check "$ASSETS/words-data.js"
@@ -50,52 +50,32 @@ jobs:
           if(d.categories.length!==20 || total!==3913) process.exit(2);
           NODE
 
-          # Patch only the system-bar behaviour of the already proven native source.
-          # This avoids replacing unrelated reminder / TTS code.
+          # Replace the legacy cloud payload's mismatched Java layer with one
+          # clean, mutually-consistent native bundle. MainActivity reserves the
+          # actual status/navigation/cutout insets OUTSIDE the WebView.
+          cp spellspeak-v6/native/MainActivity.java "$JAVA/MainActivity.java"
+          cp spellspeak-v6/native/BootReceiver.java "$JAVA/BootReceiver.java"
+          cp spellspeak-v6/native/ReminderReceiver.java "$JAVA/ReminderReceiver.java"
+          cp spellspeak-v6/native/ReminderScheduler.java "$JAVA/ReminderScheduler.java"
+          cp spellspeak-v6/native/NotificationUtil.java "$JAVA/NotificationUtil.java"
+
           python3 - <<'PY'
           from pathlib import Path
           import re
           root=Path('spellspeak-v6/project/SpellSpeakV4Android')
-          main=root/'app/src/main/java/com/spellspeak/app/MainActivity.java'
-          s=main.read_text()
-
-          if 'import android.view.WindowInsets;' not in s:
-              s=s.replace('import android.view.View;\n', 'import android.view.View;\nimport android.view.WindowInsets;\nimport android.widget.FrameLayout;\n')
-          if 'private FrameLayout rootView;' not in s:
-              s=s.replace('    private WebView webView;\n', '    private WebView webView;\n    private FrameLayout rootView;\n')
-
-          if 'setDecorFitsSystemWindows(true)' not in s:
-              raise SystemExit('Expected V5 decorFits call not found')
-          s=s.replace('getWindow().setDecorFitsSystemWindows(true);', 'getWindow().setDecorFitsSystemWindows(false);')
-
-          old='''        webView = new WebView(this);\n        setContentView(webView);'''
-          new='''        rootView = new FrameLayout(this);\n        webView = new WebView(this);\n        rootView.addView(webView, new FrameLayout.LayoutParams(\n            FrameLayout.LayoutParams.MATCH_PARENT,\n            FrameLayout.LayoutParams.MATCH_PARENT\n        ));\n        setContentView(rootView);\n        installSystemBarInsets();'''
-          if old not in s:
-              raise SystemExit('Expected WebView creation block not found')
-          s=s.replace(old,new,1)
-
-          marker='    private void applySystemTheme(String theme) {'
-          if marker not in s:
-              raise SystemExit('applySystemTheme marker not found')
-          inset_method='''    private void installSystemBarInsets() {\n        if (rootView == null) return;\n        rootView.setOnApplyWindowInsetsListener((view, insets) -> {\n            int left, top, right, bottom;\n            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {\n                android.graphics.Insets bars = insets.getInsets(\n                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()\n                );\n                left = bars.left;\n                top = bars.top;\n                right = bars.right;\n                bottom = bars.bottom;\n            } else {\n                left = insets.getSystemWindowInsetLeft();\n                top = insets.getSystemWindowInsetTop();\n                right = insets.getSystemWindowInsetRight();\n                bottom = insets.getSystemWindowInsetBottom();\n            }\n            view.setPadding(left, top, right, bottom);\n            return insets;\n        });\n        rootView.requestApplyInsets();\n    }\n\n'''
-          s=s.replace(marker, inset_method+marker,1)
-
-          color_line='        int color = Color.parseColor(light ? "#F4F7FB" : "#081321");'
-          if color_line in s:
-              s=s.replace(color_line, color_line+'\n        if (rootView != null) rootView.setBackgroundColor(color);\n        if (webView != null) webView.setBackgroundColor(color);',1)
-
-          main.write_text(s)
 
           manifest=root/'app/src/main/AndroidManifest.xml'
           s=manifest.read_text()
           if 'android:windowSoftInputMode=' not in s:
               s=s.replace('android:name=".MainActivity"\n            android:exported="true"', 'android:name=".MainActivity"\n            android:exported="true"\n            android:windowSoftInputMode="adjustResize"')
+          if 'android.permission.POST_NOTIFICATIONS' not in s:
+              s=s.replace('<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />', '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
           manifest.write_text(s)
 
           styles=root/'app/src/main/res/values/styles.xml'
           s=styles.read_text()
           if 'android:windowDrawsSystemBarBackgrounds' not in s:
-              s=s.replace('<item name="android:windowBackground">#081321</item>', '<item name="android:windowBackground">#081321</item>\n    <item name="android:windowDrawsSystemBarBackgrounds">true</item>')
+              s=s.replace('</style>', '    <item name="android:windowDrawsSystemBarBackgrounds">true</item>\n</style>', 1)
           styles.write_text(s)
 
           build=root/'app/build.gradle.kts'
@@ -105,8 +85,9 @@ jobs:
           build.write_text(s)
           PY
 
-          grep -n 'setDecorFitsSystemWindows\|installSystemBarInsets\|setPadding' "$MAIN"
+          grep -n 'setDecorFitsSystemWindows\|installSystemBarInsets\|setPadding' "$JAVA/MainActivity.java"
           grep -n 'versionCode\|versionName' "$ROOT/app/build.gradle.kts"
+          test -f "$JAVA/NotificationUtil.java"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
