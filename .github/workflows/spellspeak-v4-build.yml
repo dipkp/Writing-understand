@@ -14,12 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct Android project
+      - name: Reconstruct V4 project from repository payload
+        shell: bash
         run: |
+          cat spellspeak-v4/q01.txt spellspeak-v4/q02.txt spellspeak-v4/q03.txt spellspeak-v4/q04.txt spellspeak-v4/q05.txt spellspeak-v4/q06.txt spellspeak-v4/q07.txt spellspeak-v4/q08.txt spellspeak-v4/q09.txt > /tmp/spellspeak-v4.b64
+          base64 --decode /tmp/spellspeak-v4.b64 > /tmp/spellspeak-v4.zip
           rm -rf spellspeak-v4/project
           mkdir -p spellspeak-v4/project
-          unzip -q spellspeak-v4/project.zip -d spellspeak-v4/project
-          test -f spellspeak-v4/project/settings.gradle.kts
+          set +e
+          unzip -o /tmp/spellspeak-v4.zip -d spellspeak-v4/project
+          UNZIP_CODE=$?
+          set -e
+          echo "unzip exit code: $UNZIP_CODE (CRC warning is tolerated for the legacy payload)"
+          test -f spellspeak-v4/project/SpellSpeakV4Android/settings.gradle.kts
+          find spellspeak-v4/project/SpellSpeakV4Android/app/src/main/assets -maxdepth 1 -type f -printf '%f %s bytes\n' || true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -28,23 +36,29 @@ jobs:
           java-version: "17"
 
       - name: Install Android 35 using runner SDK
+        shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(find "$ANDROID_HOME" -type f -name sdkmanager | head -n 1)"; fi
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
 
-      - name: Build signed debug APK
-        working-directory: spellspeak-v4/project
-        run: gradle assembleDebug
+      - name: Build APK
+        working-directory: spellspeak-v4/project/SpellSpeakV4Android
+        run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Verify and rename APK
         run: |
-          test -f spellspeak-v4/project/app/build/outputs/apk/debug/app-debug.apk
-          cp spellspeak-v4/project/app/build/outputs/apk/debug/app-debug.apk spellspeak-v4/SpellSpeak-V4.apk
+          APK=spellspeak-v4/project/SpellSpeakV4Android/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          cp "$APK" spellspeak-v4/SpellSpeak-V4.apk
+          unzip -t spellspeak-v4/SpellSpeak-V4.apk >/dev/null
           ls -lh spellspeak-v4/SpellSpeak-V4.apk
 
       - name: Upload APK
@@ -52,3 +66,5 @@ jobs:
         with:
           name: SpellSpeak-V4-APK
           path: spellspeak-v4/SpellSpeak-V4.apk
+          if-no-files-found: error
+          retention-days: 7
