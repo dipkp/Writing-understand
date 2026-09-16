@@ -21,18 +21,18 @@ jobs:
       - name: Reconstruct Android base
         shell: bash
         run: |
-          cat spellspeak-v4/q01.txt spellspeak-v4/q02.txt spellspeak-v4/q03.txt spellspeak-v4/q04.txt spellspeak-v4/q05.txt spellspeak-v4/q06.txt spellspeak-v4/q07.txt spellspeak-v4/q08.txt spellspeak-v4/q09.txt > /tmp/spellspeak-v4.b64
-          base64 --decode /tmp/spellspeak-v4.b64 > /tmp/spellspeak-v4.zip
+          cat spellspeak-v4/q01.txt spellspeak-v4/q02.txt spellspeak-v4/q03.txt spellspeak-v4/q04.txt spellspeak-v4/q05.txt spellspeak-v4/q06.txt spellspeak-v4/q07.txt spellspeak-v4/q08.txt spellspeak-v4/q09.txt > /tmp/base.b64
+          base64 --decode /tmp/base.b64 > /tmp/base.zip
           rm -rf spellspeak-v9/project
           mkdir -p spellspeak-v9/project
           set +e
-          unzip -o /tmp/spellspeak-v4.zip -d spellspeak-v9/project
-          UNZIP_CODE=$?
+          unzip -o /tmp/base.zip -d spellspeak-v9/project
+          CODE=$?
           set -e
-          echo "legacy unzip exit code: $UNZIP_CODE"
+          echo "legacy unzip code: $CODE"
           test -f spellspeak-v9/project/SpellSpeakV4Android/settings.gradle.kts
 
-      - name: Apply exact SVG logo and V9 launcher component
+      - name: Apply exact SVG logo, navigation and launcher
         shell: bash
         run: |
           ROOT=spellspeak-v9/project/SpellSpeakV4Android
@@ -40,27 +40,27 @@ jobs:
           JAVA="$ROOT/app/src/main/java/com/spellspeak/app"
           RES="$ROOT/app/src/main/res"
 
-          # Keep repaired word library and compact system-bar-safe UI.
           cat spellspeak-v5/data00.txt spellspeak-v5/data01.txt spellspeak-v5/data02.txt spellspeak-v5/data03.txt spellspeak-v5/data04.txt > "$ASSETS/words-data.js"
           cat spellspeak-v5/topbar-patch.css >> "$ASSETS/styles.css"
 
-          # Native Android insets / TTS / reminders.
           cp spellspeak-v6/native/MainActivity.java "$JAVA/MainActivity.java"
           cp spellspeak-v6/native/BootReceiver.java "$JAVA/BootReceiver.java"
           cp spellspeak-v6/native/ReminderReceiver.java "$JAVA/ReminderReceiver.java"
           cp spellspeak-v6/native/ReminderScheduler.java "$JAVA/ReminderScheduler.java"
           cp spellspeak-v6/native/NotificationUtil.java "$JAVA/NotificationUtil.java"
 
-          # Restore the exact SVG supplied by the user.
-          base64 --decode spellspeak-v9/logo.svg.gz.b64 > /tmp/the-spell-logo.svg.gz
-          gzip -dc /tmp/the-spell-logo.svg.gz > "$ASSETS/spell-logo.svg"
-          test -s "$ASSETS/spell-logo.svg"
-          grep -q 'The Spell logo' "$ASSETS/spell-logo.svg"
+          # Reassemble the user's exact SVG from lossless compressed-base64 chunks.
+          cat spellspeak-v9/logo_parts/part00.txt spellspeak-v9/logo_parts/part01.txt spellspeak-v9/logo_parts/part02.txt spellspeak-v9/logo_parts/part03.txt spellspeak-v9/logo_parts/part04.txt spellspeak-v9/logo_parts/part05.txt spellspeak-v9/logo_parts/part06.txt spellspeak-v9/logo_parts/part07.txt > /tmp/logo.svg.gz.b64
+          echo '9dd60d52bc77b737c34d98d50cbb724ab80f6f557e608d5caec891d744ddb4e1  /tmp/logo.svg.gz.b64' | sha256sum -c -
+          base64 --decode /tmp/logo.svg.gz.b64 > /tmp/logo.svg.gz
+          gzip -dc /tmp/logo.svg.gz > "$ASSETS/spell-logo.svg"
+          echo '77e61c975b614fa916348fc2e1f6476c9bb36a939151607a50d7f3b47b92170b  '"$ASSETS/spell-logo.svg" | sha256sum -c -
 
-          # Render the SVG into native Android launcher sizes.
           sudo apt-get update -qq
           sudo apt-get install -y -qq librsvg2-bin
           mkdir -p "$RES/drawable" "$RES/drawable-nodpi" "$RES/mipmap-anydpi-v26" "$RES/values"
+
+          # Rasterize exact SVG for native Android launcher resources.
           rsvg-convert -w 432 -h 432 "$ASSETS/spell-logo.svg" > "$RES/drawable-nodpi/spellspeak_v9_foreground.png"
           cat > "$RES/drawable/spellspeak_v9_foreground_inset.xml" <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
@@ -82,8 +82,7 @@ jobs:
           cp "$RES/mipmap-anydpi-v26/spellspeak_v9.xml" "$RES/mipmap-anydpi-v26/spellspeak_v9_round.xml"
 
           for spec in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            density="${spec%%:*}"
-            size="${spec##*:}"
+            density="${spec%%:*}"; size="${spec##*:}"
             mkdir -p "$RES/mipmap-$density"
             rsvg-convert -w "$size" -h "$size" "$ASSETS/spell-logo.svg" > "$RES/mipmap-$density/spellspeak_v9.png"
             cp "$RES/mipmap-$density/spellspeak_v9.png" "$RES/mipmap-$density/spellspeak_v9_round.png"
@@ -97,79 +96,53 @@ jobs:
           root=Path('spellspeak-v9/project/SpellSpeakV4Android')
           assets=root/'app/src/main/assets'
 
-          # System back / back gesture navigates through SpellSpeak screens first.
           app=assets/'app.js'
           s=app.read_text()
           back_line="function back(){if(navStack.length>1)navStack.pop();go(navStack[navStack.length-1]||'homePage',false)}"
           native_back="window.ssNativeBack=()=>{const drawer=document.getElementById('drawerShade');if(drawer&&drawer.classList.contains('show')){menuClose();return true}const active=document.querySelector('.page.active')?.id||'homePage';if(navStack.length>1){back();return true}if(active!=='homePage'){navStack=['homePage'];go('homePage',false);return true}return false}"
           if 'window.ssNativeBack=' not in s:
-              if back_line not in s: raise SystemExit('back navigation marker missing')
-              s=s.replace(back_line, back_line+'\n'+native_back, 1)
+              if back_line not in s: raise SystemExit('back marker missing')
+              s=s.replace(back_line,back_line+'\n'+native_back,1)
           else:
-              s=re.sub(r"window\.ssNativeBack=\(\)=>\{.*?return false\}", native_back, s, count=1)
+              s=re.sub(r"window\.ssNativeBack=\(\)=>\{.*?return false\}",native_back,s,count=1)
           old="function updateHeader(page){const [t,s]=pageInfo[page]||pageInfo.homePage;$('pageTitle').textContent=t;$('pageSub').textContent=s;const home=page==='homePage';$('navBtn').classList.toggle('hidden',!home);$('backBtn').classList.toggle('hidden',home)}"
           new="function updateHeader(page){const [t,s]=pageInfo[page]||pageInfo.homePage;$('pageTitle').textContent=t;$('pageSub').textContent=s;const home=page==='homePage';document.querySelector('.appbar').classList.toggle('inner-page',!home);$('navBtn').classList.toggle('hidden',!home);$('backBtn').classList.toggle('hidden',home)}"
           if old in s: s=s.replace(old,new,1)
           app.write_text(s)
 
-          # Use the exact SVG inside the app header as well.
           html=assets/'index.html'
           h=html.read_text()
-          h=re.sub(r'<div class="brand-mark" aria-hidden="true">\s*<svg.*?</svg>\s*</div>', '<div class="brand-mark logo-brand" aria-hidden="true"><img src="spell-logo.svg" alt=""></div>', h, count=1, flags=re.S)
+          h=re.sub(r'<div class="brand-mark" aria-hidden="true">\s*<svg.*?</svg>\s*</div>','<div class="brand-mark logo-brand" aria-hidden="true"><img src="spell-logo.svg" alt=""></div>',h,count=1,flags=re.S)
           html.write_text(h)
           css=assets/'styles.css'
-          c=css.read_text()+'''\n/* V9 exact SVG logo */\n.brand-mark.logo-brand{background:#000;overflow:hidden;padding:0;border:1px solid rgba(255,255,255,.08);box-shadow:none}\n.brand-mark.logo-brand img{width:100%;height:100%;object-fit:contain;display:block}\n.appbar.inner-page .brand-mark.logo-brand{display:none}\n'''
-          css.write_text(c)
+          css.write_text(css.read_text()+'''\n/* V9 exact SVG brand */\n.brand-mark.logo-brand{background:#000;overflow:hidden;padding:0;border:1px solid rgba(255,255,255,.08);box-shadow:none}\n.brand-mark.logo-brand img{width:100%;height:100%;object-fit:contain;display:block}\n.appbar.inner-page .brand-mark.logo-brand{display:none}\n''')
 
-          # Manifest: NEW launcher component (LauncherV9) to bypass Samsung launcher cache.
           manifest=root/'app/src/main/AndroidManifest.xml'
-          android='http://schemas.android.com/apk/res/android'
-          ET.register_namespace('android', android)
-          tree=ET.parse(manifest)
-          mroot=tree.getroot()
-          application=mroot.find('application')
-          if application is None: raise SystemExit('application node missing')
-          A='{'+android+'}'
+          android='http://schemas.android.com/apk/res/android'; A='{'+android+'}'
+          ET.register_namespace('android',android)
+          tree=ET.parse(manifest); mr=tree.getroot(); application=mr.find('application')
+          if application is None: raise SystemExit('application missing')
           application.set(A+'icon','@mipmap/spellspeak_v9')
           application.set(A+'roundIcon','@mipmap/spellspeak_v9_round')
-
           main=None
           for activity in application.findall('activity'):
-              if activity.get(A+'name')=='.MainActivity':
-                  main=activity; break
+              if activity.get(A+'name')=='.MainActivity': main=activity; break
           if main is None: raise SystemExit('MainActivity missing')
-          main.set(A+'icon','@mipmap/spellspeak_v9')
-          main.set(A+'roundIcon','@mipmap/spellspeak_v9_round')
+          main.set(A+'icon','@mipmap/spellspeak_v9'); main.set(A+'roundIcon','@mipmap/spellspeak_v9_round')
+          for f in list(main.findall('intent-filter')):
+              acts={x.get(A+'name') for x in f.findall('action')}; cats={x.get(A+'name') for x in f.findall('category')}
+              if 'android.intent.action.MAIN' in acts and 'android.intent.category.LAUNCHER' in cats: main.remove(f)
+          for a in list(application.findall('activity-alias')):
+              if a.get(A+'name')=='.LauncherV9': application.remove(a)
+          alias=ET.Element('activity-alias',{A+'name':'.LauncherV9',A+'targetActivity':'.MainActivity',A+'exported':'true',A+'label':'SpellSpeak',A+'icon':'@mipmap/spellspeak_v9',A+'roundIcon':'@mipmap/spellspeak_v9_round'})
+          f=ET.SubElement(alias,'intent-filter')
+          ET.SubElement(f,'action',{A+'name':'android.intent.action.MAIN'})
+          ET.SubElement(f,'category',{A+'name':'android.intent.category.LAUNCHER'})
+          application.append(alias); tree.write(manifest,encoding='utf-8',xml_declaration=True)
 
-          # Remove launcher intent from MainActivity.
-          for filt in list(main.findall('intent-filter')):
-              actions={x.get(A+'name') for x in filt.findall('action')}
-              cats={x.get(A+'name') for x in filt.findall('category')}
-              if 'android.intent.action.MAIN' in actions and 'android.intent.category.LAUNCHER' in cats:
-                  main.remove(filt)
-
-          # Remove any stale V9 alias and create a fresh launcher component.
-          for alias in list(application.findall('activity-alias')):
-              if alias.get(A+'name')=='.LauncherV9': application.remove(alias)
-          alias=ET.Element('activity-alias',{
-              A+'name':'.LauncherV9',
-              A+'targetActivity':'.MainActivity',
-              A+'exported':'true',
-              A+'label':'SpellSpeak',
-              A+'icon':'@mipmap/spellspeak_v9',
-              A+'roundIcon':'@mipmap/spellspeak_v9_round'
-          })
-          filt=ET.SubElement(alias,'intent-filter')
-          ET.SubElement(filt,'action',{A+'name':'android.intent.action.MAIN'})
-          ET.SubElement(filt,'category',{A+'name':'android.intent.category.LAUNCHER'})
-          application.append(alias)
-          tree.write(manifest,encoding='utf-8',xml_declaration=True)
-
-          # Version bump.
-          build=root/'app/build.gradle.kts'
-          b=build.read_text()
-          b=re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 9', b)
-          b=re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "9.0"', b)
+          build=root/'app/build.gradle.kts'; b=build.read_text()
+          b=re.sub(r'versionCode\s*=\s*\d+','versionCode = 9',b)
+          b=re.sub(r'versionName\s*=\s*"[^"]+"','versionName = "9.0"',b)
           build.write_text(b)
           PY
 
@@ -177,7 +150,6 @@ jobs:
           node --check "$ASSETS/words-data.js"
           grep -q 'spell-logo.svg' "$ASSETS/index.html"
           grep -q 'LauncherV9' "$ROOT/app/src/main/AndroidManifest.xml"
-          grep -q 'spellspeak_v9' "$ROOT/app/src/main/AndroidManifest.xml"
           test -s "$RES/mipmap-xxxhdpi/spellspeak_v9.png"
 
       - name: Set up JDK 17
@@ -186,12 +158,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android 35 using runner SDK
+      - name: Install Android 35
         shell: bash
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(find "$ANDROID_HOME" -type f -name sdkmanager | head -n 1)"; fi
-          test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
 
@@ -204,22 +175,19 @@ jobs:
         working-directory: spellspeak-v9/project/SpellSpeakV4Android
         run: gradle assembleDebug --stacktrace --no-daemon
 
-      - name: Verify exact SVG logo and launcher component
+      - name: Verify V9 APK
         shell: bash
         run: |
           APK=spellspeak-v9/project/SpellSpeakV4Android/app/build/outputs/apk/debug/app-debug.apk
-          test -f "$APK"
           AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
-          "$AAPT" dump badging "$APK" | grep -E "application:|application-icon" | head -20
+          test -f "$APK"
+          "$AAPT" dump badging "$APK" | grep -E 'application:|application-icon' | head -20
           "$AAPT" dump xmltree "$APK" AndroidManifest.xml | grep -E 'LauncherV9|spellspeak_v9' | head -20
           cp "$APK" spellspeak-v9/SpellSpeak-V9.apk
           unzip -t spellspeak-v9/SpellSpeak-V9.apk >/dev/null
-          rm -rf /tmp/v9check && mkdir -p /tmp/v9check
-          cd /tmp/v9check
+          rm -rf /tmp/v9check && mkdir /tmp/v9check && cd /tmp/v9check
           unzip -q "$GITHUB_WORKSPACE/spellspeak-v9/SpellSpeak-V9.apk" assets/spell-logo.svg
-          grep -q 'The Spell logo' assets/spell-logo.svg
-          test -s assets/spell-logo.svg
-          ls -lh "$GITHUB_WORKSPACE/spellspeak-v9/SpellSpeak-V9.apk"
+          echo '77e61c975b614fa916348fc2e1f6476c9bb36a939151607a50d7f3b47b92170b  assets/spell-logo.svg' | sha256sum -c -
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
