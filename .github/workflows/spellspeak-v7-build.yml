@@ -1,0 +1,174 @@
+name: Build SpellSpeak V7 APK
+
+on:
+  push:
+    branches: [ "spellspeak-v7-build" ]
+    paths:
+      - "spellspeak-v7/**"
+      - "spellspeak-v6/**"
+      - "spellspeak-v5/**"
+      - ".github/workflows/spellspeak-v7-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct Android base
+        shell: bash
+        run: |
+          cat spellspeak-v4/q01.txt spellspeak-v4/q02.txt spellspeak-v4/q03.txt spellspeak-v4/q04.txt spellspeak-v4/q05.txt spellspeak-v4/q06.txt spellspeak-v4/q07.txt spellspeak-v4/q08.txt spellspeak-v4/q09.txt > /tmp/spellspeak-v4.b64
+          base64 --decode /tmp/spellspeak-v4.b64 > /tmp/spellspeak-v4.zip
+          rm -rf spellspeak-v7/project
+          mkdir -p spellspeak-v7/project
+          set +e
+          unzip -o /tmp/spellspeak-v4.zip -d spellspeak-v7/project
+          UNZIP_CODE=$?
+          set -e
+          echo "legacy unzip exit code: $UNZIP_CODE"
+          test -f spellspeak-v7/project/SpellSpeakV4Android/settings.gradle.kts
+
+      - name: Apply V7 back navigation and logo
+        shell: bash
+        run: |
+          ROOT=spellspeak-v7/project/SpellSpeakV4Android
+          ASSETS="$ROOT/app/src/main/assets"
+          JAVA="$ROOT/app/src/main/java/com/spellspeak/app"
+          RES="$ROOT/app/src/main/res"
+
+          # Keep repaired 3,913-word library and the compact system-bar-safe UI.
+          cat spellspeak-v5/data00.txt spellspeak-v5/data01.txt spellspeak-v5/data02.txt spellspeak-v5/data03.txt spellspeak-v5/data04.txt > "$ASSETS/words-data.js"
+          cat spellspeak-v5/topbar-patch.css >> "$ASSETS/styles.css"
+
+          # Keep the proven V6 native system inset + notification/TTS layer.
+          cp spellspeak-v6/native/MainActivity.java "$JAVA/MainActivity.java"
+          cp spellspeak-v6/native/BootReceiver.java "$JAVA/BootReceiver.java"
+          cp spellspeak-v6/native/ReminderReceiver.java "$JAVA/ReminderReceiver.java"
+          cp spellspeak-v6/native/ReminderScheduler.java "$JAVA/ReminderScheduler.java"
+          cp spellspeak-v6/native/NotificationUtil.java "$JAVA/NotificationUtil.java"
+
+          # User-provided logo: in-app brand and launcher icon.
+          cp spellspeak-v7/logo192.png "$ASSETS/spell-logo.png"
+          cp spellspeak-v7/logo192.png "$ASSETS/icon.png"
+          rm -f "$RES/mipmap-anydpi/ic_launcher.xml" "$RES/mipmap-anydpi-v26/ic_launcher.xml"
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "$RES/mipmap-$density"
+            cp spellspeak-v7/logo192.png "$RES/mipmap-$density/ic_launcher.png"
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('spellspeak-v7/project/SpellSpeakV4Android')
+          assets=root/'app/src/main/assets'
+
+          # 1) Android system back must go to the previous SpellSpeak screen.
+          app=assets/'app.js'
+          s=app.read_text()
+          back_line="function back(){if(navStack.length>1)navStack.pop();go(navStack[navStack.length-1]||'homePage',false)}"
+          native_back="window.ssNativeBack=()=>{const drawer=document.getElementById('drawerShade');if(drawer&&drawer.classList.contains('show')){menuClose();return true}const active=document.querySelector('.page.active')?.id||'homePage';if(navStack.length>1){back();return true}if(active!=='homePage'){navStack=['homePage'];go('homePage',false);return true}return false}"
+          if 'window.ssNativeBack=' not in s:
+              if back_line not in s: raise SystemExit('back navigation marker missing')
+              s=s.replace(back_line, back_line+'\n'+native_back, 1)
+          else:
+              s=re.sub(r"window\.ssNativeBack=\(\)=>\{.*?return false\}", native_back, s, count=1)
+
+          # Make inner-page headers compact consistently.
+          old="function updateHeader(page){const [t,s]=pageInfo[page]||pageInfo.homePage;$('pageTitle').textContent=t;$('pageSub').textContent=s;const home=page==='homePage';$('navBtn').classList.toggle('hidden',!home);$('backBtn').classList.toggle('hidden',home)}"
+          new="function updateHeader(page){const [t,s]=pageInfo[page]||pageInfo.homePage;$('pageTitle').textContent=t;$('pageSub').textContent=s;const home=page==='homePage';document.querySelector('.appbar').classList.toggle('inner-page',!home);$('navBtn').classList.toggle('hidden',!home);$('backBtn').classList.toggle('hidden',home)}"
+          if old in s: s=s.replace(old,new,1)
+          app.write_text(s)
+
+          # 2) Replace the old SVG mark with the exact user-provided logo.
+          html=assets/'index.html'
+          s=html.read_text()
+          s=re.sub(
+              r'<div class="brand-mark" aria-hidden="true">\s*<svg.*?</svg>\s*</div>',
+              '<div class="brand-mark logo-brand" aria-hidden="true"><img src="spell-logo.png" alt=""></div>',
+              s,
+              count=1,
+              flags=re.S
+          )
+          html.write_text(s)
+
+          css=assets/'styles.css'
+          s=css.read_text()+'''\n/* V7 exact user-provided SpellSpeak logo */\n.brand-mark.logo-brand{background:#000;overflow:hidden;padding:0;border:1px solid rgba(255,255,255,.08);box-shadow:none}\n.brand-mark.logo-brand img{width:100%;height:100%;object-fit:contain;display:block}\n.appbar.inner-page .brand-mark.logo-brand{display:none}\n'''
+          css.write_text(s)
+
+          # Android config / version.
+          manifest=root/'app/src/main/AndroidManifest.xml'
+          s=manifest.read_text()
+          if 'android:windowSoftInputMode=' not in s:
+              s=s.replace('android:name=".MainActivity"\n            android:exported="true"', 'android:name=".MainActivity"\n            android:exported="true"\n            android:windowSoftInputMode="adjustResize"')
+          if 'android.permission.POST_NOTIFICATIONS' not in s:
+              s=s.replace('<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />', '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
+          manifest.write_text(s)
+
+          styles=root/'app/src/main/res/values/styles.xml'
+          s=styles.read_text()
+          if 'android:windowDrawsSystemBarBackgrounds' not in s:
+              s=s.replace('</style>', '    <item name="android:windowDrawsSystemBarBackgrounds">true</item>\n</style>', 1)
+          styles.write_text(s)
+
+          build=root/'app/build.gradle.kts'
+          s=build.read_text()
+          s=re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 7', s)
+          s=re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "7.0"', s)
+          build.write_text(s)
+          PY
+
+          node --check "$ASSETS/app.js"
+          node --check "$ASSETS/words-data.js"
+          grep -n 'window.ssNativeBack' "$ASSETS/app.js"
+          grep -n 'spell-logo.png' "$ASSETS/index.html"
+          test -s "$ASSETS/spell-logo.png"
+          test -s "$RES/mipmap-xxxhdpi/ic_launcher.png"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android 35 using runner SDK
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(find "$ANDROID_HOME" -type f -name sdkmanager | head -n 1)"; fi
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build V7 APK
+        working-directory: spellspeak-v7/project/SpellSpeakV4Android
+        run: gradle assembleDebug --stacktrace --no-daemon
+
+      - name: Verify APK contents
+        shell: bash
+        run: |
+          APK=spellspeak-v7/project/SpellSpeakV4Android/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          cp "$APK" spellspeak-v7/SpellSpeak-V7.apk
+          unzip -t spellspeak-v7/SpellSpeak-V7.apk >/dev/null
+          rm -rf /tmp/v7check && mkdir -p /tmp/v7check
+          cd /tmp/v7check
+          unzip -q "$GITHUB_WORKSPACE/spellspeak-v7/SpellSpeak-V7.apk" assets/app.js assets/index.html assets/spell-logo.png
+          grep -q 'window.ssNativeBack' assets/app.js
+          grep -q 'spell-logo.png' assets/index.html
+          test -s assets/spell-logo.png
+          ls -lh "$GITHUB_WORKSPACE/spellspeak-v7/SpellSpeak-V7.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpellSpeak-V7-APK
+          path: spellspeak-v7/SpellSpeak-V7.apk
+          if-no-files-found: error
+          retention-days: 7
