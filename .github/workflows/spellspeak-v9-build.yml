@@ -32,7 +32,7 @@ jobs:
           echo "legacy unzip code: $CODE"
           test -f spellspeak-v9/project/SpellSpeakV4Android/settings.gradle.kts
 
-      - name: Apply exact SVG logo, navigation and launcher
+      - name: Apply exact SVG logo, navigation and robust audio
         shell: bash
         run: |
           ROOT=spellspeak-v9/project/SpellSpeakV4Android
@@ -43,7 +43,8 @@ jobs:
           cat spellspeak-v5/data00.txt spellspeak-v5/data01.txt spellspeak-v5/data02.txt spellspeak-v5/data03.txt spellspeak-v5/data04.txt > "$ASSETS/words-data.js"
           cat spellspeak-v5/topbar-patch.css >> "$ASSETS/styles.css"
 
-          cp spellspeak-v6/native/MainActivity.java "$JAVA/MainActivity.java"
+          # V9: self-healing native TTS bridge; reminders/notifications stay unchanged.
+          cp spellspeak-v9/native/MainActivity.java "$JAVA/MainActivity.java"
           cp spellspeak-v6/native/BootReceiver.java "$JAVA/BootReceiver.java"
           cp spellspeak-v6/native/ReminderReceiver.java "$JAVA/ReminderReceiver.java"
           cp spellspeak-v6/native/ReminderScheduler.java "$JAVA/ReminderScheduler.java"
@@ -60,7 +61,6 @@ jobs:
           sudo apt-get install -y -qq librsvg2-bin
           mkdir -p "$RES/drawable" "$RES/drawable-nodpi" "$RES/mipmap-anydpi-v26" "$RES/values"
 
-          # Rasterize exact SVG for native Android launcher resources.
           rsvg-convert -w 432 -h 432 "$ASSETS/spell-logo.svg" > "$RES/drawable-nodpi/spellspeak_v9_foreground.png"
           cat > "$RES/drawable/spellspeak_v9_foreground_inset.xml" <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
@@ -98,6 +98,13 @@ jobs:
 
           app=assets/'app.js'
           s=app.read_text()
+
+          # Stable WebView -> native bridge: string args prevent JS numeric conversion issues.
+          old_speak="function speak(text,rate=settings.rate,repeat=settings.repeat){if(!text)return;if(window.AndroidBridge?.speak){AndroidBridge.speak(String(text),Number(rate),Number(repeat));return}if(window.AndroidApp?.speak){AndroidApp.speak(String(text),Number(rate),Number(repeat));return}if('speechSynthesis'in window){speechSynthesis.cancel();let n=0;const run=()=>{const u=new SpeechSynthesisUtterance(String(text));u.lang='en-GB';u.rate=Number(rate);u.onend=()=>{n++;if(n<repeat)setTimeout(run,220)};speechSynthesis.speak(u)};run()}}"
+          new_speak="function speak(text,rate=settings.rate,repeat=settings.repeat){if(!text)return;if(window.AndroidApp?.speakText){AndroidApp.speakText(String(text),String(Number(rate)||0.82),String(Number(repeat)||1));return}if(window.AndroidApp?.speak){AndroidApp.speak(String(text),Number(rate),Number(repeat));return}if(window.AndroidBridge?.speak){AndroidBridge.speak(String(text),Number(rate),Number(repeat));return}if('speechSynthesis'in window){speechSynthesis.cancel();let n=0;const run=()=>{const u=new SpeechSynthesisUtterance(String(text));u.lang='en-GB';u.rate=Number(rate)||0.82;u.onend=()=>{n++;if(n<(Number(repeat)||1))setTimeout(run,220)};speechSynthesis.speak(u)};run()}}"
+          if old_speak not in s: raise SystemExit('speak function marker missing')
+          s=s.replace(old_speak,new_speak,1)
+
           back_line="function back(){if(navStack.length>1)navStack.pop();go(navStack[navStack.length-1]||'homePage',false)}"
           native_back="window.ssNativeBack=()=>{const drawer=document.getElementById('drawerShade');if(drawer&&drawer.classList.contains('show')){menuClose();return true}const active=document.querySelector('.page.active')?.id||'homePage';if(navStack.length>1){back();return true}if(active!=='homePage'){navStack=['homePage'];go('homePage',false);return true}return false}"
           if 'window.ssNativeBack=' not in s:
@@ -122,6 +129,12 @@ jobs:
           ET.register_namespace('android',android)
           tree=ET.parse(manifest); mr=tree.getroot(); application=mr.find('application')
           if application is None: raise SystemExit('application missing')
+
+          # Audio focus permission for reliable native speech.
+          perms={p.get(A+'name') for p in mr.findall('uses-permission')}
+          if 'android.permission.MODIFY_AUDIO_SETTINGS' not in perms:
+              mr.insert(0,ET.Element('uses-permission',{A+'name':'android.permission.MODIFY_AUDIO_SETTINGS'}))
+
           application.set(A+'icon','@mipmap/spellspeak_v9')
           application.set(A+'roundIcon','@mipmap/spellspeak_v9_round')
           main=None
@@ -148,6 +161,8 @@ jobs:
 
           node --check "$ASSETS/app.js"
           node --check "$ASSETS/words-data.js"
+          grep -q 'AndroidApp.speakText' "$ASSETS/app.js"
+          grep -q 'public void speakText' "$JAVA/MainActivity.java"
           grep -q 'spell-logo.svg' "$ASSETS/index.html"
           grep -q 'LauncherV9' "$ROOT/app/src/main/AndroidManifest.xml"
           test -s "$RES/mipmap-xxxhdpi/spellspeak_v9.png"
@@ -182,12 +197,13 @@ jobs:
           AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
           test -f "$APK"
           "$AAPT" dump badging "$APK" | grep -E 'application:|application-icon' | head -20
-          "$AAPT" dump xmltree "$APK" AndroidManifest.xml | grep -E 'LauncherV9|spellspeak_v9' | head -20
+          "$AAPT" dump xmltree "$APK" AndroidManifest.xml | grep -E 'LauncherV9|spellspeak_v9|MODIFY_AUDIO_SETTINGS' | head -30
           cp "$APK" spellspeak-v9/SpellSpeak-V9.apk
           unzip -t spellspeak-v9/SpellSpeak-V9.apk >/dev/null
           rm -rf /tmp/v9check && mkdir /tmp/v9check && cd /tmp/v9check
-          unzip -q "$GITHUB_WORKSPACE/spellspeak-v9/SpellSpeak-V9.apk" assets/spell-logo.svg
+          unzip -q "$GITHUB_WORKSPACE/spellspeak-v9/SpellSpeak-V9.apk" assets/spell-logo.svg assets/app.js
           echo '77e61c975b614fa916348fc2e1f6476c9bb36a939151607a50d7f3b47b92170b  assets/spell-logo.svg' | sha256sum -c -
+          grep -q 'AndroidApp.speakText' assets/app.js
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
