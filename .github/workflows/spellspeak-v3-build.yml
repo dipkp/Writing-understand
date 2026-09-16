@@ -1,0 +1,53 @@
+name: Build SpellSpeak V3 APK
+
+on:
+  push:
+    branches: [ "spellspeak-apk-build" ]
+    paths:
+      - "spellspeak-v3/**"
+      - ".github/workflows/spellspeak-v3-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct Android project
+        run: |
+          cat spellspeak-v3/p1.txt spellspeak-v3/p2.txt spellspeak-v3/p3.txt spellspeak-v3/p4.txt > /tmp/spellspeak-v3.b64
+          base64 -d /tmp/spellspeak-v3.b64 > /tmp/spellspeak-v3.zip
+          mkdir -p spellspeak-v3/project
+          unzip -q /tmp/spellspeak-v3.zip -d spellspeak-v3/project
+          test -f spellspeak-v3/project/settings.gradle.kts
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build debug APK
+        working-directory: spellspeak-v3/project
+        run: gradle assembleDebug
+
+      - name: Rename APK
+        run: cp spellspeak-v3/project/app/build/outputs/apk/debug/app-debug.apk spellspeak-v3/SpellSpeak-V3.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpellSpeak-V3-APK
+          path: spellspeak-v3/SpellSpeak-V3.apk
