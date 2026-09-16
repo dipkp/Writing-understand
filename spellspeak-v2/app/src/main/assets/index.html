@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SpellSpeak</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <button class="iconbtn" id="menuBtn">☰</button>
+    <button class="iconbtn backbtn" id="backBtn">‹</button>
+    <div class="logo">🔊</div>
+    <div>
+      <div class="top-title" id="topTitle">SpellSpeak</div>
+      <div class="top-sub" id="topSub">Hear it • spell it • master it</div>
+    </div>
+    <div class="top-spacer"></div>
+  </div>
+
+  <section class="page active" id="homePage">
+    <div class="page-inner">
+      <div class="hero">
+        <div class="hero-kicker">IELTS SPELLING TRAINER</div>
+        <h1>Practice one clear step at a time.</h1>
+        <p>Choose a mode, prepare your material, practice on a dedicated screen, then review your result.</p>
+      </div>
+
+      <div class="section-title">Start practicing</div>
+      <div class="grid2">
+        <button class="action-card" onclick="go('wordSetupPage')">
+          <div>
+            <div class="card-icon">🔤</div>
+            <h3>Word Spelling</h3>
+            <p>Paste your own word list and train individual spellings with audio.</p>
+          </div>
+          <div class="arrow">→</div>
+        </button>
+
+        <button class="action-card" onclick="go('dictSetupPage')">
+          <div>
+            <div class="card-icon">🎧</div>
+            <h3>Text Dictation</h3>
+            <p>Paste a paragraph, hear it in chunks, and type exactly what you hear.</p>
+          </div>
+          <div class="arrow">→</div>
+        </button>
+      </div>
+
+      <div class="section-title" style="margin-top:24px">Your progress</div>
+      <div class="quick-grid">
+        <button class="quick" onclick="go('trackerPage')"><span>🧠</span><b>Weak Words</b><span id="homeWeak">0 tracked</span></button>
+        <button class="quick" onclick="go('historyPage')"><span>📈</span><b>History</b><span id="homeHistory">0 sessions</span></button>
+        <button class="quick" onclick="go('backupPage')"><span>💾</span><b>Backup</b><span>Export / restore</span></button>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="wordSetupPage">
+    <div class="page-inner">
+      <div class="card">
+        <div class="card-head"><h2>1. Add your words</h2><span class="badge">Setup</span></div>
+        <label>Your word list</label>
+        <textarea id="wordList" placeholder="accommodation&#10;environment&#10;government&#10;necessary&#10;separate&#10;opportunity"></textarea>
+        <div class="helper">Use one word per line or separate words with commas. Duplicates are removed automatically.</div>
+        <div class="btnrow">
+          <button class="btn secondary" id="sampleWordsBtn">Load IELTS Sample</button>
+          <button class="btn secondary" id="clearWordsBtn">Clear</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>2. Choose practice settings</h2><span class="badge">Options</span></div>
+        <div class="settings">
+          <div class="setting-box"><label>Voice speed</label><select id="wordRate"><option value=".65">Slow</option><option value=".82" selected>Normal</option><option value="1">Fast</option></select></div>
+          <div class="setting-box"><label>Repeat audio</label><select id="wordRepeat"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option></select></div>
+          <div class="setting-box"><label>Practice mode</label><select id="wordMode"><option value="learning">Learning — instant correction</option><option value="exam">Exam — results at end</option></select></div>
+          <div class="setting-box"><label>Session size</label><select id="wordSize"><option value="0">All words</option><option value="20">20 words</option><option value="30">30 words</option><option value="50" selected>50 words</option></select></div>
+        </div>
+        <div class="settings" style="margin-top:14px">
+          <label class="checkline"><input type="checkbox" id="wordShuffle" checked> Shuffle words</label>
+          <label class="checkline"><input type="checkbox" id="wordAuto" checked> Auto-play next word</label>
+          <label class="checkline"><input type="checkbox" id="wordRetry" checked> Retry wrong words at end</label>
+          <label class="checkline"><input type="checkbox" id="wordRetype" checked> Retype wrong word correctly</label>
+        </div>
+      </div>
+
+      <button class="btn primary full" id="startWordBtn">Start Word Practice →</button>
+    </div>
+  </section>
+
+  <section class="page" id="wordPracticePage">
+    <div class="page-inner practice-wrap">
+      <div class="progress-wrap">
+        <div class="progress-label" id="wordCounter">Word 1 of 10</div>
+        <div class="progress"><div id="wordProgress"></div></div>
+      </div>
+      <button class="speaker" id="wordSpeak">🔊</button>
+      <div class="instruction">Listen to the word, type the spelling, then press Check.</div>
+      <input class="answer-input" id="wordAnswer" spellcheck="false" autocapitalize="none" placeholder="Type spelling here…">
+      <div class="feedback" id="wordFeedback"></div>
+      <div class="practice-actions">
+        <button class="btn primary" id="wordCheck">Check</button>
+        <button class="btn secondary" id="wordReplay">Replay</button>
+        <button class="btn secondary" id="wordSkip">Skip</button>
+      </div>
+      <div class="btnrow" style="justify-content:center"><button class="btn danger" id="wordEnd">End Practice</button></div>
+      <div class="stats">
+        <div class="stat"><span>Correct</span><b id="wordCorrectStat">0</b></div>
+        <div class="stat"><span>Wrong</span><b id="wordWrongStat">0</b></div>
+        <div class="stat"><span>Remaining</span><b id="wordRemainStat">0</b></div>
+        <div class="stat"><span>Accuracy</span><b id="wordAccStat">0%</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="wordResultPage">
+    <div class="page-inner">
+      <div class="card result-hero">
+        <div class="result-icon">🏁</div>
+        <h2>Word practice complete</h2>
+        <div class="result-score" id="wordResultScore">0%</div>
+        <div class="result-sub" id="wordResultSub">0 correct • 0 wrong</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Words to review</h2><span class="badge">Mistakes</span></div>
+        <div class="chips" id="wordResultMistakes"></div>
+      </div>
+      <div class="btnrow">
+        <button class="btn primary" id="wordRetryBtn">Practice Wrong Words</button>
+        <button class="btn secondary" onclick="go('wordSetupPage')">New Word Session</button>
+        <button class="btn secondary" onclick="go('homePage')">Home</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="dictSetupPage">
+    <div class="page-inner">
+      <div class="card">
+        <div class="card-head"><h2>1. Add your text</h2><span class="badge">Setup</span></div>
+        <label>Text / script</label>
+        <textarea id="dictText" placeholder="Paste an IELTS paragraph, article, transcript, or your own text here…"></textarea>
+        <div class="helper">SpellSpeak will split this into manageable chunks for dictation practice.</div>
+        <div class="btnrow">
+          <button class="btn secondary" id="dictSampleBtn">Load Sample</button>
+          <button class="btn secondary" id="dictClearBtn">Clear</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>2. Choose dictation settings</h2><span class="badge">Options</span></div>
+        <div class="settings">
+          <div class="setting-box"><label>Chunk length</label><select id="dictChunk"><option value="5">Short — ~5 words</option><option value="9" selected>Medium — ~9 words</option><option value="15">Long — ~15 words</option><option value="24">Very long — ~24 words</option></select></div>
+          <div class="setting-box"><label>Voice speed</label><select id="dictRate"><option value=".60">Slow</option><option value=".78" selected>Normal</option><option value=".95">Fast</option></select></div>
+          <div class="setting-box"><label>Repeat audio</label><select id="dictRepeat"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option></select></div>
+          <div class="setting-box"><label>Correction style</label><select id="dictMode"><option value="instant">Instant correction</option><option value="end">Results at end</option></select></div>
+        </div>
+        <div class="settings" style="margin-top:14px">
+          <label class="checkline"><input type="checkbox" id="dictAuto" checked> Auto-play each chunk</label>
+          <label class="checkline"><input type="checkbox" id="dictTrack" checked> Track wrong words</label>
+        </div>
+      </div>
+
+      <button class="btn primary full" id="startDictBtn">Start Text Dictation →</button>
+    </div>
+  </section>
+
+  <section class="page" id="dictPracticePage">
+    <div class="page-inner practice-wrap">
+      <div class="progress-wrap">
+        <div class="progress-label" id="dictCounter">Chunk 1 of 10</div>
+        <div class="progress"><div id="dictProgress"></div></div>
+      </div>
+      <button class="speaker" id="dictSpeak">🎧</button>
+      <div class="instruction">Listen carefully and type exactly what you hear.</div>
+      <textarea class="answer-area" id="dictAnswer" spellcheck="false" placeholder="Type what you hear…"></textarea>
+      <div class="feedback" id="dictFeedback"></div>
+      <div class="practice-actions">
+        <button class="btn primary" id="dictCheck">Check</button>
+        <button class="btn secondary" id="dictReplay">Replay</button>
+        <button class="btn secondary" id="dictSkip">Skip</button>
+      </div>
+      <div class="btnrow" style="justify-content:center"><button class="btn danger" id="dictEnd">End Dictation</button></div>
+      <div class="stats">
+        <div class="stat"><span>Correct</span><b id="dictCorrectStat">0</b></div>
+        <div class="stat"><span>Wrong</span><b id="dictWrongStat">0</b></div>
+        <div class="stat"><span>Remaining</span><b id="dictRemainStat">0</b></div>
+        <div class="stat"><span>Word accuracy</span><b id="dictAccStat">0%</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="dictResultPage">
+    <div class="page-inner">
+      <div class="card result-hero">
+        <div class="result-icon">🎧</div>
+        <h2>Dictation complete</h2>
+        <div class="result-score" id="dictResultScore">0%</div>
+        <div class="result-sub" id="dictResultSub">0 chunks correct</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Problem words</h2><span class="badge">Review</span></div>
+        <div class="chips" id="dictResultMistakes"></div>
+      </div>
+      <div class="btnrow">
+        <button class="btn primary" id="dictRetryBtn">Retry Wrong Chunks</button>
+        <button class="btn secondary" onclick="go('dictSetupPage')">New Dictation</button>
+        <button class="btn secondary" onclick="go('homePage')">Home</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="trackerPage">
+    <div class="page-inner">
+      <div class="section-title">Word Tracker</div>
+      <div class="card">
+        <div class="toolbar">
+          <div><label>Search</label><input id="trackSearch" placeholder="Search a word"></div>
+          <div><label>Status</label><select id="trackFilter"><option value="all">All</option><option value="weak">Weak</option><option value="learning">Learning</option><option value="mastered">Mastered</option></select></div>
+          <div><label>Sort</label><select id="trackSort"><option value="weakest">Weakest first</option><option value="mistakes">Most mistakes</option><option value="recent">Recent</option><option value="az">A–Z</option></select></div>
+        </div>
+        <div id="trackerTable"></div>
+      </div>
+      <div class="btnrow">
+        <button class="btn secondary" id="copyWeakBtn">Copy Weak Words</button>
+        <button class="btn danger" id="resetTrackerBtn">Reset Tracking</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="historyPage">
+    <div class="page-inner">
+      <div class="section-title">Session History</div>
+      <div id="historyList"></div>
+      <button class="btn danger full" id="clearHistoryBtn">Clear History</button>
+    </div>
+  </section>
+
+  <section class="page" id="backupPage">
+    <div class="page-inner">
+      <div class="section-title">Backup & Restore</div>
+      <div class="card">
+        <h2 style="font-size:22px;margin-top:0">Keep your progress safe</h2>
+        <p style="font-size:16px;color:var(--muted);line-height:1.5">Your progress is stored on this device. Export a JSON backup before changing phones or reinstalling the app.</p>
+        <div class="btnrow">
+          <button class="btn primary" id="exportBtn">Export Backup</button>
+          <label class="btn secondary" style="display:inline-flex;align-items:center;justify-content:center">
+            Import Backup
+            <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+          </label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="drawer-shade" id="drawerShade">
+  <div class="drawer">
+    <div class="drawer-brand"><div class="logo">🔊</div><div><b>SpellSpeak</b><div class="top-sub">IELTS spelling trainer</div></div></div>
+    <div class="menu-section">Practice</div>
+    <button class="menu-item" onclick="menuGo('homePage')"><span>🏠</span><span>Home</span></button>
+    <button class="menu-item" onclick="menuGo('wordSetupPage')"><span>🔤</span><span>Word Spelling</span></button>
+    <button class="menu-item" onclick="menuGo('dictSetupPage')"><span>🎧</span><span>Text Dictation</span></button>
+    <div class="menu-section">Progress</div>
+    <button class="menu-item" onclick="menuGo('trackerPage')"><span>🧠</span><span>Word Tracker</span></button>
+    <button class="menu-item" onclick="menuGo('historyPage')"><span>📈</span><span>History</span></button>
+    <button class="menu-item" onclick="menuGo('backupPage')"><span>💾</span><span>Backup & Restore</span></button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
