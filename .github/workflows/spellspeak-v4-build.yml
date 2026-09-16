@@ -1,10 +1,10 @@
-name: Build SpellSpeak V4 APK
+name: Build SpellSpeak V5 APK
 
 on:
   push:
     branches: [ "spellspeak-apk-build" ]
     paths:
-      - "spellspeak-v4/**"
+      - "spellspeak-v5/**"
       - ".github/workflows/spellspeak-v4-build.yml"
   workflow_dispatch:
 
@@ -14,20 +14,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct V4 project from repository payload
+      - name: Reconstruct base Android project
         shell: bash
         run: |
           cat spellspeak-v4/q01.txt spellspeak-v4/q02.txt spellspeak-v4/q03.txt spellspeak-v4/q04.txt spellspeak-v4/q05.txt spellspeak-v4/q06.txt spellspeak-v4/q07.txt spellspeak-v4/q08.txt spellspeak-v4/q09.txt > /tmp/spellspeak-v4.b64
           base64 --decode /tmp/spellspeak-v4.b64 > /tmp/spellspeak-v4.zip
-          rm -rf spellspeak-v4/project
-          mkdir -p spellspeak-v4/project
+          rm -rf spellspeak-v5/project
+          mkdir -p spellspeak-v5/project
           set +e
-          unzip -o /tmp/spellspeak-v4.zip -d spellspeak-v4/project
+          unzip -o /tmp/spellspeak-v4.zip -d spellspeak-v5/project
           UNZIP_CODE=$?
           set -e
-          echo "unzip exit code: $UNZIP_CODE (CRC warning is tolerated for the legacy payload)"
-          test -f spellspeak-v4/project/SpellSpeakV4Android/settings.gradle.kts
-          find spellspeak-v4/project/SpellSpeakV4Android/app/src/main/assets -maxdepth 1 -type f -printf '%f %s bytes\n' || true
+          echo "legacy unzip exit code: $UNZIP_CODE"
+          test -f spellspeak-v5/project/SpellSpeakV4Android/settings.gradle.kts
+
+      - name: Apply V5 library and UI fixes
+        shell: bash
+        run: |
+          ROOT=spellspeak-v5/project/SpellSpeakV4Android
+          ASSETS="$ROOT/app/src/main/assets"
+          cat spellspeak-v5/data00.txt spellspeak-v5/data01.txt spellspeak-v5/data02.txt spellspeak-v5/data03.txt spellspeak-v5/data04.txt > "$ASSETS/words-data.js"
+          cat spellspeak-v5/topbar-patch.css >> "$ASSETS/styles.css"
+          node --check "$ASSETS/words-data.js"
+          node - <<'NODE'
+          const fs=require('fs'),vm=require('vm');
+          const ctx={window:{}};vm.createContext(ctx);
+          vm.runInContext(fs.readFileSync('spellspeak-v5/project/SpellSpeakV4Android/app/src/main/assets/words-data.js','utf8'),ctx);
+          const d=ctx.window.SPELL_DATA;
+          const total=d.categories.reduce((n,c)=>n+c.words.length,0);
+          console.log('library:',d.categories.length,'categories /',total,'words');
+          if(d.categories.length!==20 || total!==3913) process.exit(2);
+          NODE
+          sed -i 's/versionCode = 4/versionCode = 5/' "$ROOT/app/build.gradle.kts"
+          sed -i 's/versionName = "4.0"/versionName = "5.0"/' "$ROOT/app/build.gradle.kts"
+          grep -n 'versionCode\|versionName' "$ROOT/app/build.gradle.kts"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -49,22 +69,22 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
-      - name: Build APK
-        working-directory: spellspeak-v4/project/SpellSpeakV4Android
+      - name: Build V5 APK
+        working-directory: spellspeak-v5/project/SpellSpeakV4Android
         run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Verify and rename APK
         run: |
-          APK=spellspeak-v4/project/SpellSpeakV4Android/app/build/outputs/apk/debug/app-debug.apk
+          APK=spellspeak-v5/project/SpellSpeakV4Android/app/build/outputs/apk/debug/app-debug.apk
           test -f "$APK"
-          cp "$APK" spellspeak-v4/SpellSpeak-V4.apk
-          unzip -t spellspeak-v4/SpellSpeak-V4.apk >/dev/null
-          ls -lh spellspeak-v4/SpellSpeak-V4.apk
+          cp "$APK" spellspeak-v5/SpellSpeak-V5.apk
+          unzip -t spellspeak-v5/SpellSpeak-V5.apk >/dev/null
+          ls -lh spellspeak-v5/SpellSpeak-V5.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: SpellSpeak-V4-APK
-          path: spellspeak-v4/SpellSpeak-V4.apk
+          name: SpellSpeak-V5-APK
+          path: spellspeak-v5/SpellSpeak-V5.apk
           if-no-files-found: error
           retention-days: 7
