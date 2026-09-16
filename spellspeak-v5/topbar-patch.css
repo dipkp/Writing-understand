@@ -1,0 +1,9 @@
+/* SpellSpeak V5 compact top bar */
+.appbar{min-height:52px!important;padding:5px 10px!important;gap:8px!important;background:var(--bg)!important;border-bottom:1px solid rgba(255,255,255,.035)!important;box-shadow:none!important}
+.appbar .brand-mark,.appbar .page-sub{display:none!important}
+.appbar .title-wrap{flex:1!important;max-width:none!important;min-width:0!important}
+.appbar .page-title{font-size:19px!important;line-height:1.1!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.appbar .icon-btn{width:38px!important;height:38px!important;border-radius:12px!important;font-size:20px!important;box-shadow:none!important}
+.appbar #themeQuick{width:36px!important;height:36px!important}
+main{min-height:calc(100vh - 52px)!important}
+@media(max-width:680px){.appbar{min-height:50px!important;padding:4px 8px!important}.appbar .page-title{font-size:18px!important}.appbar .icon-btn{width:36px!important;height:36px!important}main{min-height:calc(100vh - 50px)!important}}
